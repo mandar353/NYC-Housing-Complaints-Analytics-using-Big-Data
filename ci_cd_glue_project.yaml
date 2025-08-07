@@ -1,0 +1,80 @@
+# CI/CD Pipeline with AWS Glue using CloudFormation and GitHub Actions
+
+# This template assumes:
+# - You have a Glue job that uses scripts stored in S3
+# - Your infrastructure is defined via AWS CloudFormation (CFT)
+# - GitHub Actions is used for CI/CD
+# - This project processes NYC housing complaint data using Athena + Glue
+
+name: glue-cicd-pipeline
+
+description: Full CI/CD template for AWS Glue ETL + Athena-based data lake project
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy Glue Job using CloudFormation
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: ap-south-1
+      STACK_NAME: glue-nyc-etl-stack
+      S3_BUCKET: nyc-taxi-data-all
+      SCRIPT_KEY: glue-scripts/housing_etl.py
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v2
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Package and Deploy CloudFormation Template
+        run: |
+          aws cloudformation deploy \
+            --template-file infrastructure/glue-job-cft.yaml \
+            --stack-name $STACK_NAME \
+            --capabilities CAPABILITY_IAM \
+            --parameter-overrides \
+              ScriptBucket=$S3_BUCKET \
+              ScriptKey=$SCRIPT_KEY
+
+      - name: Upload Glue Script to S3
+        run: |
+          aws s3 cp scripts/housing_etl.py s3://$S3_BUCKET/$SCRIPT_KEY
+
+# infrastructure/glue-job-cft.yaml
+# ------------------------------
+# CloudFormation template to create Glue Job
+# Place this under `infrastructure/` directory
+
+# AWSTemplateFormatVersion: '2010-09-09'
+# Description: AWS Glue Job for Housing Complaints ETL
+# Parameters:
+#   ScriptBucket:
+#     Type: String
+#   ScriptKey:
+#     Type: String
+# Resources:
+#   GlueJob:
+#     Type: AWS::Glue::Job
+#     Properties:
+#       Name: housing-etl-job
+#       Role: arn:aws:iam::YOUR_ACCOUNT_ID:role/service-role/AWSGlueServiceRoleDefault
+#       Command:
+#         Name: glueetl
+#         ScriptLocation: !Sub s3://${ScriptBucket}/${ScriptKey}
+#         PythonVersion: 3
+#       GlueVersion: 4.0
+#       MaxRetries: 0
+#       Timeout: 10
+#       NumberOfWorkers: 5
+#       WorkerType: G.1X
